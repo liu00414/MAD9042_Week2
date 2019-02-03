@@ -27,6 +27,14 @@ class MainActivity : AppCompatActivity() {
     private var mSensor: Sensor? = null
 
     var maxLight = 0.0f
+    var ambientLight = 0.0f
+
+    var originalAngle=0.0f
+    var originalAngleFlag=true
+
+    var x = 0.0f
+    var y = 0.0f
+    var z = 0.0f
 
     var flashLightStatus = false
     var deviceHasCameraFlash: Boolean = false
@@ -40,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     lateinit var zEditText : EditText
 
     lateinit var screenBackground: View
+    lateinit var vibrateMotor: Vibrator
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,14 +73,15 @@ class MainActivity : AppCompatActivity() {
 
                         //turn the light off:
                         camManager.setTorchMode(cameraId, false)
+                        flashLightStatus = !flashLightStatus  //flip true to false, or false to true
                     }
-                    else //when light off
-
-                        //turn the light on:
-                        camManager.setTorchMode(cameraId, true)
+                    //hold the phone tilted below the horizontal plane, and the ambient light is less than 100 lumens.
+                    else{
+                        Log.i("Message","the ambient light is greater than 100 lumens")
+                    }
                 }
 
-                flashLightStatus = !flashLightStatus  //flip true to false, or false to true
+
             }
             catch( e:Throwable)
             {
@@ -85,7 +95,7 @@ class MainActivity : AppCompatActivity() {
 
         //Vibration example. Look at powerpoint slides on vibration
         val vibrateButton = findViewById<Button>(R.id.vibrate_button)
-        val vibrateMotor = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        vibrateMotor = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
 
         vibrateButton.setOnClickListener{
 
@@ -93,7 +103,7 @@ class MainActivity : AppCompatActivity() {
             val amplitudes = intArrayOf(0, 255, 0, 128)
             // api 26 or newer: vibrateMotor.vibrate(VibrationEffect.createWaveform(pattern, amplitudes, -1) )
 
-            vibrateMotor.vibrate(pattern, -1);
+            vibrateMotor.vibrate(pattern, -1)
         }
         //end of vibration example
 
@@ -124,17 +134,42 @@ class MainActivity : AppCompatActivity() {
         zEditText = findViewById(R.id.z_values)
     }
 
+    var lastVibrate = 0L
     inner class OrientationListener : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             val values = event.values
 
-            val x = values[0]
-            val y = values[1]
-            val z = values[2]
+            x = values[0]
+            y = values[1]
+            z = values[2]
 
-            xEditText.setText("X: $x")
-            yEditText.setText("Y: $y")
-            zEditText.setText("Z: $z")
+            //get original angle value
+            if(originalAngleFlag){
+                originalAngle=x
+                originalAngleFlag=false
+            }
+
+            //turn more than 45 degrees away from the original angle, vibrate the phone
+            val angleDif=Math.abs(x-originalAngle)
+            var timeNow = System.currentTimeMillis()
+
+            if(angleDif>45 && (timeNow - lastVibrate > 2000 )){
+                val pattern = longArrayOf(500, 500, 500, 500)
+                val amplitudes = intArrayOf(0, 255, 0, 128)
+                // api 26 or newer: vibrateMotor.vibrate(VibrationEffect.createWaveform(pattern, amplitudes, -1) )
+                lastVibrate = timeNow
+                vibrateMotor.vibrate(pattern, -1)
+            }
+
+            xEditText.setText("X: $x, origin angle: $originalAngle")
+            yEditText.setText("Y: $y, ambient light: $ambientLight") //rotation around x, 0.0 when vertical, with positive values when the z-axis moves toward the y-axis.
+            zEditText.setText("Z: $z, angle diff: $angleDif")
+
+            //When the phone’s orientation sensor crosses 0 degrees towards you, the flashlight turns off.
+
+                camManager.setTorchMode(cameraId, y>0&&ambientLight<100)
+
+
         }
 
         override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
@@ -149,6 +184,8 @@ class MainActivity : AppCompatActivity() {
         override fun onSensorChanged(event: SensorEvent) {
             val values = event.values
             Log.i("Light:", "Lux:"+ values[0])
+            ambientLight=values[0]
+            //camManager.setTorchMode(cameraId, y>0&&ambientLight<100)
             maxLight = Math.max(maxLight, values[0])
             val intensity = (values[0]*255.0/maxLight).toInt()
            //Api 26 or newer: screenBackground.setBackgroundColor(Color.rgb( 1.0f, values[0]/maxLight, values[0]/maxLight))
@@ -156,6 +193,7 @@ class MainActivity : AppCompatActivity() {
             //API 25 or lower:
             val color =  Color.argb(255,  255, intensity, intensity)
             screenBackground.setBackgroundColor(color)
+
         }
 
         override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
